@@ -5,6 +5,12 @@ import pickle
 import json
 import matplotlib.pyplot as plt
 
+from sklearn.model_selection import train_test_split
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.pipeline import Pipeline
+from sklearn.linear_model import LogisticRegression
+
 
 # ---------------------------------------------------------
 # PAGE CONFIG
@@ -108,11 +114,6 @@ st.markdown(
             opacity: 0.82;
         }
 
-        .small-note {
-            opacity: 0.72;
-            font-size: 0.87rem;
-        }
-
         div[data-testid="stTabs"] button {
             font-weight: 650;
         }
@@ -134,7 +135,7 @@ st.markdown(
 
 
 # ---------------------------------------------------------
-# LOAD ARTIFACTS
+# LOADERS
 # ---------------------------------------------------------
 
 @st.cache_resource
@@ -170,21 +171,106 @@ def load_diabetes_artifacts():
 
 
 @st.cache_resource
-def load_heart_artifacts():
-    with open("heart_model.pkl", "rb") as f:
-        model = pickle.load(f)
+def rebuild_heart_model():
+    """
+    Rebuilds the heart-disease pipeline from heart_data.csv.
+    This is used only if heart_model.pkl cannot be unpickled in deployment.
+    """
+    data = pd.read_csv("heart_data.csv")
 
+    feature_names = [
+        "age",
+        "sex",
+        "cp",
+        "trestbps",
+        "chol",
+        "fbs",
+        "restecg",
+        "thalach",
+        "exang",
+        "oldpeak",
+        "slope",
+        "ca",
+        "thal"
+    ]
+
+    numeric_features = [
+        "age",
+        "trestbps",
+        "chol",
+        "thalach",
+        "oldpeak"
+    ]
+
+    categorical_features = [
+        "sex",
+        "cp",
+        "fbs",
+        "restecg",
+        "exang",
+        "slope",
+        "ca",
+        "thal"
+    ]
+
+    X = data[feature_names]
+    y = data["condition"]
+
+    X_train, _, y_train, _ = train_test_split(
+        X,
+        y,
+        test_size=0.20,
+        random_state=42,
+        stratify=y
+    )
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("numeric", StandardScaler(), numeric_features),
+            (
+                "categorical",
+                OneHotEncoder(handle_unknown="ignore"),
+                categorical_features
+            )
+        ]
+    )
+
+    model = Pipeline(
+        steps=[
+            ("preprocessor", preprocessor),
+            (
+                "classifier",
+                LogisticRegression(
+                    max_iter=2000,
+                    class_weight="balanced",
+                    random_state=42
+                )
+            )
+        ]
+    )
+
+    model.fit(X_train, y_train)
+
+    return model
+
+
+@st.cache_resource
+def load_heart_artifacts():
     with open("heart_results.json", "r") as f:
         results = json.load(f)
 
     data = pd.read_csv("heart_data_cleaned.csv")
 
-    return model, results, data
+    used_fallback = False
 
+    try:
+        with open("heart_model.pkl", "rb") as f:
+            model = pickle.load(f)
+    except Exception:
+        model = rebuild_heart_model()
+        used_fallback = True
 
-breast_model, breast_scaler, breast_results, breast_data = load_breast_artifacts()
-diabetes_model, diabetes_scaler, diabetes_results, diabetes_data = load_diabetes_artifacts()
-heart_model, heart_results, heart_data = load_heart_artifacts()
+    return model, results, data, used_fallback
 
 
 # ---------------------------------------------------------
@@ -232,7 +318,6 @@ def show_result(title, confidence, detail):
 
 st.sidebar.markdown("## 🏥 MediFlow")
 st.sidebar.caption("Multi-disease ML risk prediction")
-
 st.sidebar.markdown("---")
 
 disease = st.sidebar.selectbox(
@@ -246,7 +331,7 @@ st.sidebar.caption("Breast Cancer • Diabetes • Heart Disease")
 st.sidebar.markdown("---")
 st.sidebar.markdown("### About")
 st.sidebar.caption(
-    "MediFlow compares multiple machine-learning models and exposes "
+    "MediFlow compares multiple machine-learning models and provides "
     "prediction, model performance, and dataset insights in one dashboard."
 )
 
@@ -256,44 +341,48 @@ st.sidebar.warning(
 
 
 # ---------------------------------------------------------
-# SELECT CURRENT MODULE
+# LAZY LOAD SELECTED MODULE ONLY
 # ---------------------------------------------------------
 
-if disease == "Breast Cancer":
-    model = breast_model
-    scaler = breast_scaler
-    results = breast_results
-    data = breast_data
+heart_fallback = False
 
-    feature_names = results["feature_names"]
-    target_column = "diagnosis"
-    assessment_title = "Breast Cancer Assessment"
-    dataset_name = "UCI Breast Cancer Wisconsin (Diagnostic)"
-    module_icon = "🎗️"
+try:
+    if disease == "Breast Cancer":
+        model, scaler, results, data = load_breast_artifacts()
 
-elif disease == "Diabetes":
-    model = diabetes_model
-    scaler = diabetes_scaler
-    results = diabetes_results
-    data = diabetes_data
+        feature_names = results["feature_names"]
+        target_column = "diagnosis"
+        assessment_title = "Breast Cancer Assessment"
+        dataset_name = "UCI Breast Cancer Wisconsin (Diagnostic)"
+        module_icon = "🎗️"
 
-    feature_names = results["feature_names"]
-    target_column = "Outcome"
-    assessment_title = "Diabetes Risk Assessment"
-    dataset_name = "Pima Indians Diabetes Dataset"
-    module_icon = "🩸"
+    elif disease == "Diabetes":
+        model, scaler, results, data = load_diabetes_artifacts()
 
-else:
-    model = heart_model
-    scaler = None
-    results = heart_results
-    data = heart_data
+        feature_names = results["feature_names"]
+        target_column = "Outcome"
+        assessment_title = "Diabetes Risk Assessment"
+        dataset_name = "Pima Indians Diabetes Dataset"
+        module_icon = "🩸"
 
-    feature_names = results["feature_names"]
-    target_column = "condition"
-    assessment_title = "Heart Disease Risk Assessment"
-    dataset_name = "Cleveland Heart Disease Dataset"
-    module_icon = "❤️"
+    else:
+        model, results, data, heart_fallback = load_heart_artifacts()
+        scaler = None
+
+        feature_names = results["feature_names"]
+        target_column = "condition"
+        assessment_title = "Heart Disease Risk Assessment"
+        dataset_name = "Cleveland Heart Disease Dataset"
+        module_icon = "❤️"
+
+except FileNotFoundError as e:
+    st.error(f"Required project file is missing: {e.filename}")
+    st.stop()
+
+except Exception as e:
+    st.error("The selected module could not be loaded.")
+    st.exception(e)
+    st.stop()
 
 
 # ---------------------------------------------------------
@@ -318,6 +407,12 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
+if disease == "Heart Disease" and heart_fallback:
+    st.info(
+        "Heart Disease model was rebuilt from the project dataset because the "
+        "saved model artifact was not compatible with the current deployment environment."
+    )
 
 
 # ---------------------------------------------------------
@@ -356,7 +451,6 @@ tab1, tab2, tab3 = st.tabs(
 # =========================================================
 
 with tab1:
-
     st.markdown("### Patient inputs")
     st.caption(
         "Enter the available measurements below. "
@@ -366,16 +460,15 @@ with tab1:
     user_input = {}
 
     # -----------------------------------------------------
-    # BREAST CANCER INPUTS
+    # BREAST CANCER
     # -----------------------------------------------------
 
     if disease == "Breast Cancer":
-
         with st.container(border=True):
             st.markdown("#### Key diagnostic features")
             st.caption(
-                "The UI exposes the six most important features. "
-                "Remaining features are filled with dataset-average values."
+                "The interface exposes the six most important features. "
+                "Remaining features use dataset-average values."
             )
 
             top_features = list(results["feature_importance"].keys())[:6]
@@ -394,11 +487,10 @@ with tab1:
                     )
 
     # -----------------------------------------------------
-    # DIABETES INPUTS
+    # DIABETES
     # -----------------------------------------------------
 
     elif disease == "Diabetes":
-
         with st.container(border=True):
             st.markdown("#### Metabolic and patient profile")
             st.caption(
@@ -441,33 +533,32 @@ with tab1:
                         )
 
     # -----------------------------------------------------
-    # HEART DISEASE INPUTS
+    # HEART DISEASE
     # -----------------------------------------------------
 
     else:
-
         with st.container(border=True):
             st.markdown("#### Patient profile")
 
             c1, c2, c3 = st.columns(3)
 
             with c1:
-                age_range = results["feature_ranges"]["age"]
+                rng = results["feature_ranges"]["age"]
                 user_input["age"] = st.slider(
                     "Age",
-                    min_value=int(age_range["min"]),
-                    max_value=int(age_range["max"]),
-                    value=int(round(age_range["mean"])),
+                    min_value=int(rng["min"]),
+                    max_value=int(rng["max"]),
+                    value=int(round(rng["mean"])),
                     key="heart_age"
                 )
 
             with c2:
-                sex_labels = {"Female": 0, "Male": 1}
-                choice = st.selectbox("Sex", list(sex_labels.keys()), key="heart_sex")
-                user_input["sex"] = sex_labels[choice]
+                mapping = {"Female": 0, "Male": 1}
+                choice = st.selectbox("Sex", list(mapping.keys()), key="heart_sex")
+                user_input["sex"] = mapping[choice]
 
             with c3:
-                cp_labels = {
+                mapping = {
                     "Typical Angina": 0,
                     "Atypical Angina": 1,
                     "Non-anginal Pain": 2,
@@ -475,10 +566,10 @@ with tab1:
                 }
                 choice = st.selectbox(
                     "Chest Pain Type",
-                    list(cp_labels.keys()),
+                    list(mapping.keys()),
                     key="heart_cp"
                 )
-                user_input["cp"] = cp_labels[choice]
+                user_input["cp"] = mapping[choice]
 
         with st.container(border=True):
             st.markdown("#### Clinical measurements")
@@ -495,13 +586,13 @@ with tab1:
                     key="heart_trestbps"
                 )
 
-                fbs_labels = {"No": 0, "Yes": 1}
+                mapping = {"No": 0, "Yes": 1}
                 choice = st.selectbox(
                     "Fasting Blood Sugar > 120 mg/dL",
-                    list(fbs_labels.keys()),
+                    list(mapping.keys()),
                     key="heart_fbs"
                 )
-                user_input["fbs"] = fbs_labels[choice]
+                user_input["fbs"] = mapping[choice]
 
             with c2:
                 rng = results["feature_ranges"]["chol"]
@@ -513,17 +604,17 @@ with tab1:
                     key="heart_chol"
                 )
 
-                restecg_labels = {
+                mapping = {
                     "Normal": 0,
                     "ST-T Wave Abnormality": 1,
                     "Left Ventricular Hypertrophy": 2
                 }
                 choice = st.selectbox(
                     "Resting ECG",
-                    list(restecg_labels.keys()),
+                    list(mapping.keys()),
                     key="heart_restecg"
                 )
-                user_input["restecg"] = restecg_labels[choice]
+                user_input["restecg"] = mapping[choice]
 
             with c3:
                 rng = results["feature_ranges"]["thalach"]
@@ -535,13 +626,13 @@ with tab1:
                     key="heart_thalach"
                 )
 
-                exang_labels = {"No": 0, "Yes": 1}
+                mapping = {"No": 0, "Yes": 1}
                 choice = st.selectbox(
                     "Exercise-Induced Angina",
-                    list(exang_labels.keys()),
+                    list(mapping.keys()),
                     key="heart_exang"
                 )
-                user_input["exang"] = exang_labels[choice]
+                user_input["exang"] = mapping[choice]
 
         with st.container(border=True):
             st.markdown("#### Exercise and diagnostic findings")
@@ -559,47 +650,47 @@ with tab1:
                     key="heart_oldpeak"
                 )
 
-                slope_labels = {
+                mapping = {
                     "Upsloping": 0,
                     "Flat": 1,
                     "Downsloping": 2
                 }
                 choice = st.selectbox(
                     "Peak Exercise ST Segment",
-                    list(slope_labels.keys()),
+                    list(mapping.keys()),
                     key="heart_slope"
                 )
-                user_input["slope"] = slope_labels[choice]
+                user_input["slope"] = mapping[choice]
 
             with c2:
-                ca_range = results["feature_ranges"]["ca"]
+                rng = results["feature_ranges"]["ca"]
                 user_input["ca"] = st.selectbox(
                     "Major Vessels Colored by Fluoroscopy",
                     options=list(
                         range(
-                            int(ca_range["min"]),
-                            int(ca_range["max"]) + 1
+                            int(rng["min"]),
+                            int(rng["max"]) + 1
                         )
                     ),
                     key="heart_ca"
                 )
 
             with c3:
-                thal_labels = {
+                mapping = {
                     "Normal": 0,
                     "Fixed Defect": 1,
                     "Reversible Defect": 2
                 }
                 choice = st.selectbox(
                     "Thalassemia",
-                    list(thal_labels.keys()),
+                    list(mapping.keys()),
                     key="heart_thal"
                 )
-                user_input["thal"] = thal_labels[choice]
+                user_input["thal"] = mapping[choice]
 
 
     # -----------------------------------------------------
-    # BUILD FULL INPUT
+    # BUILD INPUT
     # -----------------------------------------------------
 
     full_input = []
@@ -612,7 +703,7 @@ with tab1:
 
 
     # -----------------------------------------------------
-    # PREDICT
+    # PREDICTION
     # -----------------------------------------------------
 
     st.markdown("")
@@ -623,7 +714,6 @@ with tab1:
         use_container_width=True,
         key=f"predict_{disease}"
     ):
-
         input_df = pd.DataFrame([full_input], columns=feature_names)
 
         if disease == "Heart Disease":
@@ -637,7 +727,6 @@ with tab1:
         st.markdown("---")
 
         if disease == "Breast Cancer":
-
             if prediction == 1:
                 confidence = float(probability[1])
                 show_result(
@@ -661,7 +750,6 @@ with tab1:
             )
 
         elif disease == "Diabetes":
-
             if prediction == 1:
                 confidence = float(probability[1])
                 show_result(
@@ -685,7 +773,6 @@ with tab1:
             )
 
         else:
-
             if prediction == 1:
                 confidence = float(probability[1])
                 show_result(
@@ -724,7 +811,6 @@ with tab1:
 # =========================================================
 
 with tab2:
-
     st.markdown("### Model comparison")
     st.caption(
         f"Three classifiers were evaluated for the {disease} module. "
@@ -757,8 +843,8 @@ with tab2:
 
     st.info(
         f"**Selected production model: {results['best_model']}**. "
-        "F1-score is used because it balances precision and recall, which is "
-        "more informative than accuracy alone for binary medical classification."
+        "F1-score balances precision and recall and is more informative than "
+        "accuracy alone for binary medical classification."
     )
 
 
@@ -767,7 +853,6 @@ with tab2:
 # =========================================================
 
 with tab3:
-
     left, right = st.columns([1.35, 1])
 
     with left:
