@@ -1,0 +1,85 @@
+{
+    "best_model": "SVM",
+    "feature_names": [
+        "Pregnancies",
+        "Glucose",
+        "BloodPressure",
+        "SkinThickness",
+        "Insulin",
+        "BMI",
+        "DiabetesPedigreeFunction",
+        "Age"
+    ],
+    "results": {
+        "Logistic Regression": {
+            "accuracy": 0.7077922077922078,
+            "precision": 0.6,
+            "recall": 0.5,
+            "f1_score": 0.5454545454545454
+        },
+        "Random Forest": {
+            "accuracy": 0.7337662337662337,
+            "precision": 0.6444444444444445,
+            "recall": 0.5370370370370371,
+            "f1_score": 0.5858585858585859
+        },
+        "SVM": {
+            "accuracy": 0.7402597402597403,
+            "precision": 0.6521739130434783,
+            "recall": 0.5555555555555556,
+            "f1_score": 0.6
+        }
+    },
+    "feature_importance": {
+        "Glucose": 0.26820595865515373,
+        "BMI": 0.16004856909826765,
+        "DiabetesPedigreeFunction": 0.1242358364590262,
+        "Age": 0.12169483072427106,
+        "Insulin": 0.09163152668661323,
+        "BloodPressure": 0.08417787938043651,
+        "Pregnancies": 0.07897223351419345,
+        "SkinThickness": 0.07103316548203813
+    },
+    "feature_ranges": {
+        "Pregnancies": {
+            "min": 0.0,
+            "max": 17.0,
+            "mean": 3.8450520833333335
+        },
+        "Glucose": {
+            "min": 44.0,
+            "max": 199.0,
+            "mean": 121.65625
+        },
+        "BloodPressure": {
+            "min": 24.0,
+            "max": 122.0,
+            "mean": 72.38671875
+        },
+        "SkinThickness": {
+            "min": 7.0,
+            "max": 99.0,
+            "mean": 29.108072916666668
+        },
+        "Insulin": {
+            "min": 14.0,
+            "max": 846.0,
+            "mean": 140.671875
+        },
+        "BMI": {
+            "min": 18.2,
+            "max": 67.1,
+            "mean": 32.45520833333333
+        },
+        "DiabetesPedigreeFunction": {
+            "min": 0.078,
+            "max": 2.42,
+            "mean": 0.47187630208333325
+        },
+        "Age": {
+            "min": 21.0,
+            "max": 81.0,
+            "mean": 33.240885416666664
+        }
+    }
+}
